@@ -46,6 +46,7 @@ public protocol DatabaseWriter: DatabaseReader {
     /// - parameter updates: The updates to the database.
     /// - throws: The error thrown by the updates, or by the
     ///   wrapping transaction.
+    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     func write<T>(_ updates: (Database) throws -> T) throws -> T
     
     /// Synchronously executes database updates in a protected dispatch queue,
@@ -67,6 +68,7 @@ public protocol DatabaseWriter: DatabaseReader {
     ///
     /// - parameter updates: The updates to the database.
     /// - throws: The error thrown by the updates.
+    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     func writeWithoutTransaction<T>(_ updates: (Database) throws -> T) rethrows -> T
     
     /// Synchronously executes database updates in a protected dispatch queue,
@@ -86,6 +88,7 @@ public protocol DatabaseWriter: DatabaseReader {
     ///
     /// - parameter updates: The updates to the database.
     /// - throws: The error thrown by the updates.
+    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     func barrierWriteWithoutTransaction<T>(_ updates: (Database) throws -> T) rethrows -> T
     
     /// Asynchronously executes database updates in a protected dispatch queue,
@@ -307,6 +310,7 @@ extension DatabaseWriter {
     ///
     /// - precondition: database is not accessed concurrently during the
     ///   execution of this method.
+    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func erase() throws {
         try writeWithoutTransaction { try $0.erase() }
     }
@@ -317,6 +321,7 @@ extension DatabaseWriter {
     /// disk space.
     ///
     /// See <https://www.sqlite.org/lang_vacuum.html> for more information.
+    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func vacuum() throws {
         try writeWithoutTransaction { try $0.execute(sql: "VACUUM") }
     }
@@ -341,6 +346,7 @@ extension DatabaseWriter {
     /// See <https://www.sqlite.org/lang_vacuum.html#vacuuminto> for more information.
     ///
     /// - Parameter filePath: file path for new database
+    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func vacuum(into filePath: String) throws {
         try writeWithoutTransaction {
             try $0.execute(sql: "VACUUM INTO ?", arguments: [filePath])
@@ -352,6 +358,7 @@ extension DatabaseWriter {
     /// See <https://www.sqlite.org/lang_vacuum.html#vacuuminto> for more information.
     ///
     /// - Parameter filePath: file path for new database
+    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     @available(OSX 10.16, iOS 14, tvOS 14, watchOS 7, *)
     public func vacuum(into filePath: String) throws {
         try writeWithoutTransaction {
@@ -410,6 +417,71 @@ extension DatabaseWriter {
         return observer
     }
 }
+
+#if swift(>=5.5)
+extension DatabaseWriter {
+    // MARK: - Asynchronous Database Access
+    
+    // TODO: remove @escaping as soon as it is possible
+    @available(macOS 12, iOS 15, tvOS 15, watchOS 8, *)
+    public func write<T>(_ updates: @Sendable @escaping (Database) throws -> T) async throws -> T {
+        try await withUnsafeThrowingContinuation { continuation in
+            asyncWrite(updates, completion: { _, result in
+                continuation.resume(with: result)
+            })
+        }
+    }
+    
+    // TODO: remove @escaping as soon as it is possible
+    @available(macOS 12, iOS 15, tvOS 15, watchOS 8, *)
+    public func writeWithoutTransaction<T>(_ updates: @Sendable @escaping (Database) throws -> T) async throws -> T {
+        try await withUnsafeThrowingContinuation { continuation in
+            asyncWriteWithoutTransaction { db in
+                do {
+                    try continuation.resume(returning: updates(db))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    
+    // TODO: remove @escaping as soon as it is possible
+    @available(macOS 12, iOS 15, tvOS 15, watchOS 8, *)
+    public func barrierWriteWithoutTransaction<T>(
+        _ updates: @Sendable @escaping (Database) throws -> T)
+    async throws -> T
+    {
+        try await withUnsafeThrowingContinuation { continuation in
+            asyncBarrierWriteWithoutTransaction { db in
+                do {
+                    try continuation.resume(returning: updates(db))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    
+    @available(macOS 12, iOS 15, tvOS 15, watchOS 8, *)
+    public func erase() async throws {
+        try await writeWithoutTransaction { try $0.erase() }
+    }
+    
+    @available(macOS 12, iOS 15, tvOS 15, watchOS 8, *)
+    public func vacuum() async throws {
+        try await writeWithoutTransaction { try $0.execute(sql: "VACUUM") }
+    }
+    
+    @available(macOS 12, iOS 15, tvOS 15, watchOS 8, *)
+    public func vacuum(into filePath: String) async throws {
+        try await writeWithoutTransaction {
+            try $0.execute(sql: "VACUUM INTO ?", arguments: [filePath])
+        }
+    }
+}
+#endif
+
 
 #if canImport(Combine)
 extension DatabaseWriter {
@@ -626,6 +698,7 @@ public final class AnyDatabaseWriter: DatabaseWriter {
     
     // MARK: - Reading from Database
     
+    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func read<T>(_ value: (Database) throws -> T) throws -> T {
         try base.read(value)
     }
@@ -639,6 +712,7 @@ public final class AnyDatabaseWriter: DatabaseWriter {
         base._weakAsyncRead(value)
     }
     
+    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func unsafeRead<T>(_ value: (Database) throws -> T) throws -> T {
         try base.unsafeRead(value)
     }
@@ -662,14 +736,17 @@ public final class AnyDatabaseWriter: DatabaseWriter {
     
     // MARK: - Writing in Database
     
+    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func write<T>(_ updates: (Database) throws -> T) throws -> T {
         try base.write(updates)
     }
     
+    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func writeWithoutTransaction<T>(_ updates: (Database) throws -> T) rethrows -> T {
         try base.writeWithoutTransaction(updates)
     }
     
+    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func barrierWriteWithoutTransaction<T>(_ updates: (Database) throws -> T) rethrows -> T {
         try base.barrierWriteWithoutTransaction(updates)
     }
